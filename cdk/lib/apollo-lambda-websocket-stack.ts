@@ -125,11 +125,11 @@ export class ApolloLambdaWebsocketStack extends Stack {
       autoDeploy: true,
     });
 
-    const requestHandlerLambda = new SimpleLambda(this, 'RequestHandler', {
-      entryFilename: 'graphql-query-handler.ts',
-      handler: 'handleMessage',
-      name: 'RequestHandler',
-      description: 'Handles GraphQL queries sent via websocket and REST. Stores (connectionId, topic) tuple in DynamoDB for subscriptions requests. Sends events to EventBridge for mutation requests',
+    const wsRequestHandlerLambda = new SimpleLambda(this, 'WSRequestHandler', {
+      entryFilename: 'graphql-query-ws-handler.ts',
+      handler: 'handleWSMessage',
+      name: 'WSRequestHandler',
+      description: 'Handles GraphQL queries sent via websocket. Stores (connectionId, topic) tuple in DynamoDB for subscriptions requests. Sends events to EventBridge for mutation requests',
       envVariables: {
         BUS_NAME: eventBus.eventBusName,
         TABLE_NAME: connectionTable.tableName,
@@ -138,10 +138,10 @@ export class ApolloLambdaWebsocketStack extends Stack {
       },
     });
 
-    connectionTable.grantFullAccess(requestHandlerLambda.fn);
-    eventBus.grantPutEventsTo(requestHandlerLambda.fn);
+    connectionTable.grantFullAccess(wsRequestHandlerLambda.fn);
+    eventBus.grantPutEventsTo(wsRequestHandlerLambda.fn);
 
-    requestHandlerLambda.fn.addToRolePolicy(
+    wsRequestHandlerLambda.fn.addToRolePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
         resources: [
@@ -153,7 +153,7 @@ export class ApolloLambdaWebsocketStack extends Stack {
 
     this.webSocketApi.addRoute('$default', {
       integration: new LambdaWebSocketIntegration({
-        handler: requestHandlerLambda.fn,
+        handler: wsRequestHandlerLambda.fn,
       }),
     });
 
@@ -242,7 +242,6 @@ export class ApolloLambdaWebsocketStack extends Stack {
 
     eventBus.grantPutEventsTo(translateToFrenchLambda.fn);
     eventBus.grantPutEventsTo(translateToGermanLambda.fn);
-    eventBus.grantPutEventsTo(requestHandlerLambda.fn);
 
     const restApi = new RestApi(this, 'ApolloRestApi', {
       description: 'A Rest API that handles GraphQl queries via POST to /graphql.',
@@ -253,9 +252,23 @@ export class ApolloLambdaWebsocketStack extends Stack {
       restApiName: 'RestApi',
     });
 
+    const restRequestHandlerLambda = new SimpleLambda(this, 'RestRequestHandler', {
+      entryFilename: 'graphql-query-rest-handler.ts',
+      handler: 'handleRESTMessage',
+      name: 'RestRequestHandler',
+      description: 'Handles GraphQL queries sent via REST.',
+      envVariables: {
+        BUS_NAME: eventBus.eventBusName,
+        REQUEST_EVENT_DETAIL_TYPE,
+      },
+    });
+
+    // connectionTable(restRequestHandlerLambda.fn);
+    eventBus.grantPutEventsTo(restRequestHandlerLambda.fn);
+
     restApi.root
       .addResource('graphql')
-      .addMethod(HttpMethod.POST, new LambdaIntegration(requestHandlerLambda.fn));
+      .addMethod(HttpMethod.POST, new LambdaIntegration(restRequestHandlerLambda.fn));
 
     new CfnOutput(this, 'WebsocketApiEndpoint', {
       value: `${this.webSocketApi.apiEndpoint}/${websocketStage.stageName}`,

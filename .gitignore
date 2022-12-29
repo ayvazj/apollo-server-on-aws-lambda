@@ -12,3 +12,6 @@ apollo-lambda-websocket.iml
 .idea
 .aws-sam
 *.zip
+
+cdk/package-lock.json
+src/package-lock.json
